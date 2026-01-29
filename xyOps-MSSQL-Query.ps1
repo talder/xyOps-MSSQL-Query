@@ -67,6 +67,7 @@ $username = $params.username
 $password = $params.password
 $query = $params.query
 $maxRows = $params.maxRows
+$exportFormat = if ([string]::IsNullOrWhiteSpace($params.exportFormat)) { "CSV" } else { $params.exportFormat.ToUpper() }
 $encrypt = if ($params.encrypt -eq $true -or $params.encrypt -eq "true") { $true } else { $false }
 $trustServerCertificate = if ($params.trustServerCertificate -eq $true -or $params.trustServerCertificate -eq "true") { $true } else { $false }
 
@@ -124,7 +125,8 @@ try {
         $connectParams['TrustServerCertificate'] = $true
     }
     
-    # Apply SQL-level row limit if maxRows is specified
+    # Apply SQL-level row limit if maxRows is specified and greater than 0
+    # If maxRows is 0, no limit is applied (return all rows)
     if ($maxRows -and $maxRows -gt 0) {
         # Check if query already has TOP clause (with or without parentheses)
         if ($query -match '(?i)^\s*SELECT\s+TOP\s*\(?\d+\)?') {
@@ -136,6 +138,8 @@ try {
             $query = [regex]::Replace($query, '^(\s*SELECT\s+)', "`$1TOP $maxRows ", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
             Write-Error "Query limited to $maxRows rows"
         }
+    } elseif ($maxRows -eq 0) {
+        Write-Error "maxRows is 0 - no row limit applied, returning all results"
     }
     
     # Execute query
@@ -159,65 +163,66 @@ try {
             }
         }
         
-        # Always write CSV file for consistency
-        if ($processedResult.Count -gt 0) {
-            $csvData = $processedResult | ForEach-Object { [PSCustomObject]$_ }
-            $csvFilePath = Join-Path $env:PWD "query_results.csv"
-            $csvData | Export-Csv -Path $csvFilePath -NoTypeInformation -Encoding UTF8
-            Write-Error "CSV file written to: $csvFilePath"
-            
-            # Upload the file as job output
-            Write-Output-JSON @{ xy = 1; files = @($csvFilePath) }
-        }
-        
-        # Send data output for use in subsequent jobs (must be BEFORE success)
+        # Export results based on selected format
         $rowCount = $processedResult.Count
         
-        # Try to include CSV data inline if it's small enough
         if ($processedResult.Count -gt 0) {
-            $csvData = $processedResult | ForEach-Object { [PSCustomObject]$_ }
-            $csvOutput = $csvData | ConvertTo-Csv -NoTypeInformation
-            $csvText = $csvOutput -join "`n"
+            # Generate unique filename with timestamp, milliseconds, and short GUID
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss_fff"
+            $shortGuid = [guid]::NewGuid().ToString().Substring(0, 8)
             
-            # Check if CSV data is under 1MB
-            $csvSizeBytes = [System.Text.Encoding]::UTF8.GetByteCount($csvText)
-            $csvSizeMB = [math]::Round($csvSizeBytes / 1MB, 2)
-            
-            if ($csvSizeBytes -lt 1048576) {
-                # Small dataset - include CSV data inline
-                Write-Error "CSV data is $csvSizeMB MB - including inline in data payload"
+            if ($exportFormat -eq "JSON") {
+                # Export as JSON
+                $jsonFileName = "query_results_${timestamp}_${shortGuid}.json"
+                $jsonFilePath = Join-Path $env:PWD $jsonFileName
+                $processedResult | ConvertTo-Json -Depth 100 | Out-File -FilePath $jsonFilePath -Encoding UTF8
+                Write-Error "JSON file written to: $jsonFilePath"
+                
+                # Upload the file as job output
+                Write-Output-JSON @{ xy = 1; files = @($jsonFilePath) }
+                
+                # Send data output with file information
                 $dataPayload = @{
                     server = $server
                     database = $database
                     rowCount = $rowCount
-                    format = "csv"
-                    csv = $csvText
+                    format = "json"
+                    fileName = $jsonFileName
+                    filePath = $jsonFilePath
                 }
+                Write-Output-JSON @{ xy = 1; data = $dataPayload }
+                
+                # Send success status (must be LAST - job completes after this)
+                Send-Success -Description "Query executed successfully. $rowCount row(s) returned. Results saved to $jsonFileName"
             } else {
-                # Large dataset - data is in file only
-                Write-Error "CSV data is $csvSizeMB MB - too large for inline, available in query_results.csv file"
+                # Export as CSV (default)
+                $csvData = $processedResult | ForEach-Object { [PSCustomObject]$_ }
+                $csvFileName = "query_results_${timestamp}_${shortGuid}.csv"
+                $csvFilePath = Join-Path $env:PWD $csvFileName
+                $csvData | Export-Csv -Path $csvFilePath -NoTypeInformation -Encoding UTF8
+                Write-Error "CSV file written to: $csvFilePath"
+                
+                # Upload the file as job output
+                Write-Output-JSON @{ xy = 1; files = @($csvFilePath) }
+                
+                # Send data output with file information
                 $dataPayload = @{
                     server = $server
                     database = $database
                     rowCount = $rowCount
                     format = "csv"
-                    message = "Query results too large for inline data. See query_results.csv file."
+                    fileName = $csvFileName
+                    filePath = $csvFilePath
                 }
+                Write-Output-JSON @{ xy = 1; data = $dataPayload }
+                
+                # Send success status (must be LAST - job completes after this)
+                Send-Success -Description "Query executed successfully. $rowCount row(s) returned. Results saved to $csvFileName"
             }
         } else {
-            $dataPayload = @{
-                server = $server
-                database = $database
-                rowCount = 0
-                format = "csv"
-            }
+            # Send success for empty results
+            Send-Success -Description "Query executed successfully. 0 rows returned."
         }
-        
-        # Output data payload
-        Write-Output-JSON @{ xy = 1; data = $dataPayload }
-        
-        # Send success status (must be LAST - job completes after this)
-        Send-Success -Description "Query executed successfully. $rowCount row(s) returned."
     }
     catch {
         Send-Error -Code 4 -Description "Database query failed: $($_.Exception.Message)"
