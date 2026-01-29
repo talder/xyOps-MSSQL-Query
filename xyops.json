@@ -1,0 +1,70 @@
+{
+  "type": "xypdf",
+  "version": "1.0",
+  "description": "xyOps Portable Data",
+  "items": [
+    {
+      "type": "plugin",
+      "data": {
+        "id": "xyops_mssql_query",
+        "title": "MSSQL Query",
+        "type": "event",
+        "command": "powershell.exe",
+        "script": "function Write-Output-JSON {\\n    param($Object)\\n    $json = $Object | ConvertTo-Json -Compress -Depth 100\\n    Write-Output $json\\n}\\nfunction Send-Progress {\\n    param([double]$Value)\\n    Write-Output-JSON @{ xy = 1; progress = $Value }\\n}\\nfunction Send-Data {\\n    param($Data)\\n    $dataJson = $Data | ConvertTo-Json -Compress -Depth 100 -WarningAction SilentlyContinue\\n    $output = '{\"xy\":1,\"output\":{\"data\":' + $dataJson + '}}'\\n    Write-Output $output\\n}\\nfunction Send-Table {\\n    param($Recordset)\\n    if ($null -eq $Recordset -or $Recordset.Count -eq 0) { return }\\n    $headers = $Recordset[0].PSObject.Properties.Name\\n    $rows = @()\\n    foreach ($record in $Recordset) {\\n        $row = @()\\n        foreach ($header in $headers) {\\n            $value = $record.$header\\n            if ($null -eq $value) {\\n                $row += \"\"\\n            }\\n            elseif ($value -is [array] -or $value -is [hashtable]) {\\n                $row += ($value | ConvertTo-Json -Compress)\\n            }\\n            else {\\n                $row += $value.ToString()\\n            }\\n        }\\n        $rows += ,@($row)\\n    }\\n    Write-Output-JSON @{\\n        xy = 1\\n        table = @{\\n            title = \"Query Results\"\\n            header = $headers\\n            rows = $rows\\n            caption = \"$($Recordset.Count) row(s) returned\"\\n        }\\n    }\\n}\\nfunction Send-Success {\\n    param([string]$Description = \"Query completed successfully\")\\n    Write-Output-JSON @{ xy = 1; code = 0; description = $Description }\\n}\\nfunction Send-Error {\\n    param([int]$Code, [string]$Description)\\n    Write-Output-JSON @{ xy = 1; code = $Code; description = $Description }\\n}\\n$inputJson = [Console]::In.ReadToEnd()\\ntry {\\n    $jobData = $inputJson | ConvertFrom-Json\\n}\\ncatch {\\n    Send-Error -Code 1 -Description \"Failed to parse input JSON: $($_.Exception.Message)\"\\n    exit 1\\n}\\n$params = $jobData.params\\n$server = $params.server\\n$database = $params.database\\n$username = $params.username\\n$password = $params.password\\n$query = $params.query\\n$encrypt = if ($params.encrypt -eq $true -or $params.encrypt -eq \"true\") { $true } else { $false }\\n$trustServerCertificate = if ($params.trustServerCertificate -eq $true -or $params.trustServerCertificate -eq \"true\") { $true } else { $false }\\n$required = @('server', 'database', 'username', 'password', 'query')\\n$missing = @()\\nforeach ($field in $required) {\\n    if ([string]::IsNullOrWhiteSpace($params.$field)) {\\n        $missing += $field\\n    }\\n}\\nif ($missing.Count -gt 0) {\\n    Send-Error -Code 2 -Description \"Missing required parameters: $($missing -join ', ')\"\\n    exit 1\\n}\\ntry {\\n    Send-Progress -Value 0.1\\n    if (-not (Get-Module -ListAvailable -Name dbatools)) {\\n        try {\\n            Write-Error \"dbatools module not found, attempting to install...\"\\n            Install-Module -Name dbatools -Force -AllowClobber -Scope CurrentUser -ErrorAction Stop\\n            Write-Error \"dbatools module installed successfully\"\\n        }\\n        catch {\\n            Send-Error -Code 3 -Description \"Failed to install required dbatools module. Please install it manually by running: Install-Module -Name dbatools -Force (Install error: $($_.Exception.Message))\"\\n            exit 1\\n        }\\n    }\\n    Send-Progress -Value 0.2\\n    Import-Module dbatools -ErrorAction Stop\\n    Send-Progress -Value 0.3\\n    $securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force\\n    $credential = New-Object System.Management.Automation.PSCredential($username, $securePassword)\\n    $connectParams = @{\\n        SqlInstance = $server\\n        Database = $database\\n        SqlCredential = $credential\\n    }\\n    if ($encrypt) {\\n        $connectParams['EncryptConnection'] = $true\\n    }\\n    if ($trustServerCertificate) {\\n        $connectParams['TrustServerCertificate'] = $true\\n    }\\n    Send-Progress -Value 0.5\\n    try {\\n        $WarningPreference = 'Stop'\\n        $result = Invoke-DbaQuery @connectParams -Query $query -As PSObject -ErrorAction Stop -EnableException\\n        Send-Progress -Value 0.9\\n        $processedResult = @()\\n        if ($result) {\\n            foreach ($row in $result) {\\n                $processedRow = @{}\\n                foreach ($prop in $row.PSObject.Properties) {\\n                    $processedRow[$prop.Name] = $prop.Value\\n                }\\n                $processedResult += $processedRow\\n            }\\n        }\\n        if ($processedResult.Count -gt 0) {\\n            $tableData = $processedResult | ForEach-Object { [PSCustomObject]$_ }\\n            Send-Table -Recordset $tableData\\n        }\\n        $rowCount = $processedResult.Count\\n        $bucketData = @{\\n            xy = 1\\n            data = @{\\n                server = $server\\n                database = $database\\n                rowCount = $rowCount\\n                recordset = $processedResult\\n            }\\n        } | ConvertTo-Json -Depth 10 -Compress\\n        Write-Output $bucketData\\n        Send-Success -Description \"Query executed successfully. $rowCount row(s) returned.\"\\n    }\\n    catch {\\n        Send-Error -Code 4 -Description \"Database query failed: $($_.Exception.Message)\"\\n        exit 1\\n    }\\n}\\ncatch {\\n    Send-Error -Code 5 -Description $_.Exception.Message\\n    exit 1\\n}",
+        "icon": "database",
+        "notes": "Execute SQL queries against Microsoft SQL Server databases using PowerShell and dbatools. Returns results as both JSON data and formatted tables.",
+        "params": [
+          {
+            "id": "server",
+            "title": "Server Address",
+            "type": "text",
+            "required": true,
+            "value": ""
+          },
+          {
+            "id": "database",
+            "title": "Database Name",
+            "type": "text",
+            "required": true,
+            "value": ""
+          },
+          {
+            "id": "username",
+            "title": "Username",
+            "type": "text",
+            "required": true,
+            "value": ""
+          },
+          {
+            "id": "password",
+            "title": "Password",
+            "type": "text",
+            "required": true,
+            "value": ""
+          },
+          {
+            "id": "query",
+            "title": "SQL Query",
+            "type": "textarea",
+            "required": true,
+            "value": "SELECT * FROM your_table"
+          },
+          {
+            "id": "encrypt",
+            "title": "Encrypt Connection",
+            "type": "checkbox",
+            "required": false,
+            "value": false
+          },
+          {
+            "id": "trustServerCertificate",
+            "title": "Trust Server Certificate",
+            "type": "checkbox",
+            "required": false,
+            "value": false
+          }
+        ]
+      }
+    }
+  ]
+}
