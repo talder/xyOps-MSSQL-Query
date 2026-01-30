@@ -52,30 +52,81 @@ function Send-Error {
 $inputJson = [Console]::In.ReadToEnd()
 
 try {
-    $jobData = $inputJson | ConvertFrom-Json
+    $jobData = $inputJson | ConvertFrom-Json -AsHashtable
 }
 catch {
     Send-Error -Code 1 -Description "Failed to parse input JSON: $($_.Exception.Message)"
     exit 1
 }
 
-# Extract parameters
+# Extract parameters - using PSObject properties to handle case variations
 $params = $jobData.params
-$server = $params.server
-$database = $params.database
-$username = $params.username
-$password = $params.password
-$query = $params.query
-$maxRows = $params.maxRows
-$exportFormat = if ([string]::IsNullOrWhiteSpace($params.exportFormat)) { "CSV" } else { $params.exportFormat.ToUpper() }
-$encrypt = if ($params.encrypt -eq $true -or $params.encrypt -eq "true") { $true } else { $false }
-$trustServerCertificate = if ($params.trustServerCertificate -eq $true -or $params.trustServerCertificate -eq "true") { $true } else { $false }
+
+# Helper function to get parameter value case-insensitively
+function Get-ParamValue {
+    param($ParamsObject, [string]$ParamName)
+    # Handle both hashtable and PSObject
+    if ($ParamsObject -is [hashtable]) {
+        # For hashtables, find key case-insensitively
+        foreach ($key in $ParamsObject.Keys) {
+            if ($key -ieq $ParamName) {
+                return $ParamsObject[$key]
+            }
+        }
+        return $null
+    } else {
+        # For PSObject
+        $prop = $ParamsObject.PSObject.Properties | Where-Object { $_.Name -ieq $ParamName } | Select-Object -First 1
+        if ($prop) { return $prop.Value }
+        return $null
+    }
+}
+
+# Check if debug mode is enabled
+$debugRaw = Get-ParamValue -ParamsObject $params -ParamName 'debug'
+$debug = if ($debugRaw -eq $true -or $debugRaw -eq "true") { $true } else { $false }
+
+# If debug is enabled, output the incoming JSON
+if ($debug) {
+    Write-Error "=== DEBUG: Incoming JSON ==="
+    # Create a copy without the script parameter
+    $debugData = @{}
+    if ($jobData -is [hashtable]) {
+        foreach ($key in $jobData.Keys) {
+            if ($key -ne 'script') {
+                $debugData[$key] = $jobData[$key]
+            }
+        }
+    } else {
+        foreach ($prop in $jobData.PSObject.Properties) {
+            if ($prop.Name -ne 'script') {
+                $debugData[$prop.Name] = $prop.Value
+            }
+        }
+    }
+    $formattedJson = $debugData | ConvertTo-Json -Depth 10
+    Write-Error $formattedJson
+    Write-Error "=== END DEBUG ==="
+}
+
+$server = Get-ParamValue -ParamsObject $params -ParamName 'server'
+$database = Get-ParamValue -ParamsObject $params -ParamName 'database'
+$username = Get-ParamValue -ParamsObject $params -ParamName 'username'
+$password = Get-ParamValue -ParamsObject $params -ParamName 'password'
+$query = Get-ParamValue -ParamsObject $params -ParamName 'query'
+$maxRows = Get-ParamValue -ParamsObject $params -ParamName 'maxRows'
+$exportFormatRaw = Get-ParamValue -ParamsObject $params -ParamName 'exportFormat'
+$exportFormat = if ([string]::IsNullOrWhiteSpace($exportFormatRaw)) { "CSV" } else { $exportFormatRaw.ToUpper() }
+$useencryptionRaw = Get-ParamValue -ParamsObject $params -ParamName 'useencryption'
+$trustcertRaw = Get-ParamValue -ParamsObject $params -ParamName 'trustcert'
+
 
 # Validate required parameters
 $required = @('server', 'database', 'username', 'password', 'query')
 $missing = @()
 foreach ($field in $required) {
-    if ([string]::IsNullOrWhiteSpace($params.$field)) {
+    $value = Get-ParamValue -ParamsObject $params -ParamName $field
+    if ([string]::IsNullOrWhiteSpace($value)) {
         $missing += $field
     }
 }
@@ -105,6 +156,24 @@ try {
     Send-Progress -Value 0.2
     Import-Module dbatools -ErrorAction Stop
     
+    # Configure dbatools connection settings based on parameters
+    # Must use explicit $true/$false for dbatools config
+    if ($trustcertRaw -eq "true") {
+        Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $true
+    } else {
+        Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $false
+    }
+    
+    if ($useencryptionRaw-eq "true") {
+        Set-DbatoolsConfig -FullName sql.connection.encrypt -Value $true
+        Write-Error "Encryption enabled for SQL connection"
+    } else {
+        Set-DbatoolsConfig -FullName sql.connection.encrypt -Value $false
+        Write-Error "Encryption disabled for SQL connection"
+    }
+    
+    Write-Error "dbatools config: trustcert=$trustcertRaw , encrypt=$useencryptionRaw"
+    
     # Build connection parameters
     Send-Progress -Value 0.3
     
@@ -117,13 +186,8 @@ try {
         SqlCredential = $credential
     }
     
-    if ($encrypt) {
-        $connectParams['EncryptConnection'] = $true
-    }
-    
-    if ($trustServerCertificate) {
-        $connectParams['TrustServerCertificate'] = $true
-    }
+    # Encryption and certificate trust are handled by Set-DbatoolsConfig above
+    # No need to set them in connection parameters
     
     # Apply SQL-level row limit if maxRows is specified and greater than 0
     # If maxRows is 0, no limit is applied (return all rows)
@@ -146,9 +210,23 @@ try {
     Send-Progress -Value 0.5
     
     try {
-        # Capture warnings as errors
-        $WarningPreference = 'Stop'
-        $result = Invoke-DbaQuery @connectParams -Query $query -As PSObject -ErrorAction Stop -EnableException
+        # Prepare query parameters
+        $queryParams = @{
+            Query = $query
+            As = 'PSObject'
+            ErrorAction = 'Stop'
+            EnableException = $true
+        }
+        
+        # When trustcert is enabled, suppress warnings to prevent certificate validation warnings from becoming errors
+        if ($trustcert) {
+            $WarningPreference = 'SilentlyContinue'
+            $queryParams['WarningAction'] = 'SilentlyContinue'
+        } else {
+            $WarningPreference = 'Stop'
+        }
+        
+        $result = Invoke-DbaQuery @connectParams @queryParams
         Send-Progress -Value 0.9
         
         # Convert result to hashtable array
