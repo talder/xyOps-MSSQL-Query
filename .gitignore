@@ -1,0 +1,7 @@
+# Ignore marketplace submission file (explicit)
+MARKETPLACE_SUBMISSION.md
+marketplace_submission.md
+
+# Common OS/editor files
+.DS_Store
+.vscode/
