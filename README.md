@@ -163,23 +163,23 @@ Example output:
 
 ### Encryption
 
-Enable the `useencryption` checkbox to force encrypted connections. This is recommended when connecting over untrusted networks.
+Enable the `Use Encryption` checkbox to force encrypted connections. This is recommended when connecting over untrusted networks.
 
-**Note**: Your SQL Server must be configured to support encryption, or you must enable `trustcert` to bypass certificate validation.
+**Note**: Your SQL Server must be configured to support encryption, or you must enable `Trust Certificate` to bypass certificate validation.
 
 ### Certificate Validation
 
-The `trustcert` checkbox allows you to bypass SSL/TLS certificate validation. Use this when:
+The `Trust Certificate` checkbox allows you to bypass SSL/TLS certificate validation. Use this when:
 
 - Connecting to servers with self-signed certificates
 - Working in development/testing environments
 - Dealing with certificate name mismatches
 
-**Security Warning**: Only use `trustcert` in trusted environments. In production, properly configure SSL certificates on your SQL Server.
+**Security Warning**: Only use `Trust Certificate` in trusted environments. In production, properly configure SSL certificates on your SQL Server.
 
 ## Debug Mode
 
-Enable the `debug` checkbox to see detailed execution information including:
+Enable the `Enable debug mode` checkbox to see detailed execution information including:
 
 - Input parameter values
 - Connection settings
@@ -201,7 +201,7 @@ Debug output appears in the job logs (stderr).
 
 ## Test Database Setup
 
-Here's a script to create a test database with sample data:
+Here's a SQL Query to create a test database with sample data:
 
 ```sql
 -- Create test database
@@ -278,7 +278,7 @@ Install-Module -Name dbatools -Force -AllowClobber -Scope CurrentUser
 
 ### Connection Fails with Certificate Error
 
-Enable the `trustcert` checkbox to bypass certificate validation, or properly configure SSL on your SQL Server.
+Enable the `Trust certificate` checkbox to bypass certificate validation, or properly configure SSL on your SQL Server.
 
 ### Permission Denied
 
