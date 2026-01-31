@@ -1,70 +1,119 @@
 {
-  "type": "xypdf",
-  "version": "1.0",
-  "description": "xyOps Portable Data",
-  "items": [
-    {
-      "type": "plugin",
-      "data": {
-        "id": "xyops_mssql_query",
-        "title": "MSSQL Query",
-        "type": "event",
-        "command": "powershell.exe",
-        "script": "function Write-Output-JSON {\\n    param($Object)\\n    $json = $Object | ConvertTo-Json -Compress -Depth 100\\n    Write-Output $json\\n}\\nfunction Send-Progress {\\n    param([double]$Value)\\n    Write-Output-JSON @{ xy = 1; progress = $Value }\\n}\\nfunction Send-Data {\\n    param($Data)\\n    $dataJson = $Data | ConvertTo-Json -Compress -Depth 100 -WarningAction SilentlyContinue\\n    $output = '{\"xy\":1,\"output\":{\"data\":' + $dataJson + '}}'\\n    Write-Output $output\\n}\\nfunction Send-Table {\\n    param($Recordset)\\n    if ($null -eq $Recordset -or $Recordset.Count -eq 0) { return }\\n    $headers = $Recordset[0].PSObject.Properties.Name\\n    $rows = @()\\n    foreach ($record in $Recordset) {\\n        $row = @()\\n        foreach ($header in $headers) {\\n            $value = $record.$header\\n            if ($null -eq $value) {\\n                $row += \"\"\\n            }\\n            elseif ($value -is [array] -or $value -is [hashtable]) {\\n                $row += ($value | ConvertTo-Json -Compress)\\n            }\\n            else {\\n                $row += $value.ToString()\\n            }\\n        }\\n        $rows += ,@($row)\\n    }\\n    Write-Output-JSON @{\\n        xy = 1\\n        table = @{\\n            title = \"Query Results\"\\n            header = $headers\\n            rows = $rows\\n            caption = \"$($Recordset.Count) row(s) returned\"\\n        }\\n    }\\n}\\nfunction Send-Success {\\n    param([string]$Description = \"Query completed successfully\")\\n    Write-Output-JSON @{ xy = 1; code = 0; description = $Description }\\n}\\nfunction Send-Error {\\n    param([int]$Code, [string]$Description)\\n    Write-Output-JSON @{ xy = 1; code = $Code; description = $Description }\\n}\\n$inputJson = [Console]::In.ReadToEnd()\\ntry {\\n    $jobData = $inputJson | ConvertFrom-Json\\n}\\ncatch {\\n    Send-Error -Code 1 -Description \"Failed to parse input JSON: $($_.Exception.Message)\"\\n    exit 1\\n}\\n$params = $jobData.params\\n$server = $params.server\\n$database = $params.database\\n$username = $params.username\\n$password = $params.password\\n$query = $params.query\\n$encrypt = if ($params.encrypt -eq $true -or $params.encrypt -eq \"true\") { $true } else { $false }\\n$trustServerCertificate = if ($params.trustServerCertificate -eq $true -or $params.trustServerCertificate -eq \"true\") { $true } else { $false }\\n$required = @('server', 'database', 'username', 'password', 'query')\\n$missing = @()\\nforeach ($field in $required) {\\n    if ([string]::IsNullOrWhiteSpace($params.$field)) {\\n        $missing += $field\\n    }\\n}\\nif ($missing.Count -gt 0) {\\n    Send-Error -Code 2 -Description \"Missing required parameters: $($missing -join ', ')\"\\n    exit 1\\n}\\ntry {\\n    Send-Progress -Value 0.1\\n    if (-not (Get-Module -ListAvailable -Name dbatools)) {\\n        try {\\n            Write-Error \"dbatools module not found, attempting to install...\"\\n            Install-Module -Name dbatools -Force -AllowClobber -Scope CurrentUser -ErrorAction Stop\\n            Write-Error \"dbatools module installed successfully\"\\n        }\\n        catch {\\n            Send-Error -Code 3 -Description \"Failed to install required dbatools module. Please install it manually by running: Install-Module -Name dbatools -Force (Install error: $($_.Exception.Message))\"\\n            exit 1\\n        }\\n    }\\n    Send-Progress -Value 0.2\\n    Import-Module dbatools -ErrorAction Stop\\n    Send-Progress -Value 0.3\\n    $securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force\\n    $credential = New-Object System.Management.Automation.PSCredential($username, $securePassword)\\n    $connectParams = @{\\n        SqlInstance = $server\\n        Database = $database\\n        SqlCredential = $credential\\n    }\\n    if ($encrypt) {\\n        $connectParams['EncryptConnection'] = $true\\n    }\\n    if ($trustServerCertificate) {\\n        $connectParams['TrustServerCertificate'] = $true\\n    }\\n    Send-Progress -Value 0.5\\n    try {\\n        $WarningPreference = 'Stop'\\n        $result = Invoke-DbaQuery @connectParams -Query $query -As PSObject -ErrorAction Stop -EnableException\\n        Send-Progress -Value 0.9\\n        $processedResult = @()\\n        if ($result) {\\n            foreach ($row in $result) {\\n                $processedRow = @{}\\n                foreach ($prop in $row.PSObject.Properties) {\\n                    $processedRow[$prop.Name] = $prop.Value\\n                }\\n                $processedResult += $processedRow\\n            }\\n        }\\n        if ($processedResult.Count -gt 0) {\\n            $tableData = $processedResult | ForEach-Object { [PSCustomObject]$_ }\\n            Send-Table -Recordset $tableData\\n        }\\n        $rowCount = $processedResult.Count\\n        $bucketData = @{\\n            xy = 1\\n            data = @{\\n                server = $server\\n                database = $database\\n                rowCount = $rowCount\\n                recordset = $processedResult\\n            }\\n        } | ConvertTo-Json -Depth 10 -Compress\\n        Write-Output $bucketData\\n        Send-Success -Description \"Query executed successfully. $rowCount row(s) returned.\"\\n    }\\n    catch {\\n        Send-Error -Code 4 -Description \"Database query failed: $($_.Exception.Message)\"\\n        exit 1\\n    }\\n}\\ncatch {\\n    Send-Error -Code 5 -Description $_.Exception.Message\\n    exit 1\\n}",
-        "icon": "database",
-        "notes": "Execute SQL queries against Microsoft SQL Server databases using PowerShell and dbatools. Returns results as both JSON data and formatted tables.",
-        "params": [
-          {
-            "id": "server",
-            "title": "Server Address",
-            "type": "text",
-            "required": true,
-            "value": ""
-          },
-          {
-            "id": "database",
-            "title": "Database Name",
-            "type": "text",
-            "required": true,
-            "value": ""
-          },
-          {
-            "id": "username",
-            "title": "Username",
-            "type": "text",
-            "required": true,
-            "value": ""
-          },
-          {
-            "id": "password",
-            "title": "Password",
-            "type": "text",
-            "required": true,
-            "value": ""
-          },
-          {
-            "id": "query",
-            "title": "SQL Query",
-            "type": "textarea",
-            "required": true,
-            "value": "SELECT * FROM your_table"
-          },
-          {
-            "id": "encrypt",
-            "title": "Encrypt Connection",
-            "type": "checkbox",
-            "required": false,
-            "value": false
-          },
-          {
-            "id": "trustServerCertificate",
-            "title": "Trust Server Certificate",
-            "type": "checkbox",
-            "required": false,
-            "value": false
-          }
-        ]
-      }
-    }
-  ]
+	"type": "xypdf",
+	"description": "xyOps Portable Data Object",
+	"version": "1.0",
+	"items": [
+		{
+			"type": "plugin",
+			"data": {
+				"id": "pmky08wr2oesb25n",
+				"title": "MSSQL Query",
+				"enabled": true,
+				"type": "event",
+				"command": "pwsh",
+				"script": "# (c) Tim Alderweireldt xyOps MSSQL Query Plugin - PowerShell Version\n# Reads JSON input from STDIN and executes SQL queries using dbatools\n\nfunction Write-Output-JSON {\n    param($Object)\n    $json = $Object | ConvertTo-Json -Compress -Depth 100\n    Write-Output $json\n}\n\nfunction Send-Progress {\n    param([double]$Value)\n    Write-Output-JSON @{ xy = 1; progress = $Value }\n}\n\nfunction Send-Data {\n    param($Data)\n    # Pre-serialize the data payload separately to avoid depth issues\n    $dataJson = $Data | ConvertTo-Json -Compress -Depth 100 -WarningAction SilentlyContinue\n    # Manually construct the wrapper JSON to avoid double-encoding\n    $output = '{\"xy\":1,\"output\":{\"data\":' + $dataJson + '}}'\n    Write-Output $output\n}\n\nfunction Send-CSV {\n    param($Recordset)\n    \n    if ($null -eq $Recordset -or $Recordset.Count -eq 0) { return }\n    \n    # Convert to CSV format using PowerShell's built-in Export-CSV logic\n    $csv = $Recordset | ConvertTo-Csv -NoTypeInformation\n    \n    # Send as text output\n    Write-Output-JSON @{\n        xy = 1\n        output = @{\n            text = ($csv -join \"`n\")\n        }\n    }\n}\n\nfunction Send-Success {\n    param([string]$Description = \"Query completed successfully\")\n    Write-Output-JSON @{ xy = 1; code = 0; description = $Description }\n}\n\nfunction Send-Error {\n    param([int]$Code, [string]$Description)\n    Write-Output-JSON @{ xy = 1; code = $Code; description = $Description }\n}\n\n# Read input from STDIN\n$inputJson = [Console]::In.ReadToEnd()\n\ntry {\n    $jobData = $inputJson | ConvertFrom-Json -AsHashtable\n}\ncatch {\n    Send-Error -Code 1 -Description \"Failed to parse input JSON: $($_.Exception.Message)\"\n    exit 1\n}\n\n# Extract parameters - using PSObject properties to handle case variations\n$params = $jobData.params\n\n# Helper function to get parameter value case-insensitively\nfunction Get-ParamValue {\n    param($ParamsObject, [string]$ParamName)\n    # Handle both hashtable and PSObject\n    if ($ParamsObject -is [hashtable]) {\n        # For hashtables, find key case-insensitively\n        foreach ($key in $ParamsObject.Keys) {\n            if ($key -ieq $ParamName) {\n                return $ParamsObject[$key]\n            }\n        }\n        return $null\n    } else {\n        # For PSObject\n        $prop = $ParamsObject.PSObject.Properties | Where-Object { $_.Name -ieq $ParamName } | Select-Object -First 1\n        if ($prop) { return $prop.Value }\n        return $null\n    }\n}\n\n# Check if debug mode is enabled\n$debugRaw = Get-ParamValue -ParamsObject $params -ParamName 'debug'\n$debug = if ($debugRaw -eq $true -or $debugRaw -eq \"true\") { $true } else { $false }\n\n# If debug is enabled, output the incoming JSON\nif ($debug) {\n    Write-Error \"=== DEBUG: Incoming JSON ===\"\n    # Create a copy without the script parameter\n    $debugData = @{}\n    if ($jobData -is [hashtable]) {\n        foreach ($key in $jobData.Keys) {\n            if ($key -ne 'script') {\n                $debugData[$key] = $jobData[$key]\n            }\n        }\n    } else {\n        foreach ($prop in $jobData.PSObject.Properties) {\n            if ($prop.Name -ne 'script') {\n                $debugData[$prop.Name] = $prop.Value\n            }\n        }\n    }\n    $formattedJson = $debugData | ConvertTo-Json -Depth 10\n    Write-Error $formattedJson\n    Write-Error \"=== END DEBUG ===\"\n}\n\n$server = Get-ParamValue -ParamsObject $params -ParamName 'server'\n$database = Get-ParamValue -ParamsObject $params -ParamName 'database'\n$username = Get-ParamValue -ParamsObject $params -ParamName 'username'\n$password = Get-ParamValue -ParamsObject $params -ParamName 'password'\n$query = Get-ParamValue -ParamsObject $params -ParamName 'query'\n$maxRows = Get-ParamValue -ParamsObject $params -ParamName 'maxRows'\n$exportFormatRaw = Get-ParamValue -ParamsObject $params -ParamName 'exportFormat'\n$exportFormat = if ([string]::IsNullOrWhiteSpace($exportFormatRaw)) { \"CSV\" } else { $exportFormatRaw.ToUpper() }\n$useencryptionRaw = Get-ParamValue -ParamsObject $params -ParamName 'useencryption'\n$trustcertRaw = Get-ParamValue -ParamsObject $params -ParamName 'trustcert'\n\n\n# Validate required parameters\n$required = @('server', 'database', 'username', 'password', 'query')\n$missing = @()\nforeach ($field in $required) {\n    $value = Get-ParamValue -ParamsObject $params -ParamName $field\n    if ([string]::IsNullOrWhiteSpace($value)) {\n        $missing += $field\n    }\n}\n\nif ($missing.Count -gt 0) {\n    Send-Error -Code 2 -Description \"Missing required parameters: $($missing -join ', ')\"\n    exit 1\n}\n\ntry {\n    # Check if dbatools module is installed\n    Send-Progress -Value 0.1\n    \n    if (-not (Get-Module -ListAvailable -Name dbatools)) {\n        try {\n            Write-Error \"dbatools module not found, attempting to install...\"\n            Install-Module -Name dbatools -Force -AllowClobber -Scope CurrentUser -ErrorAction Stop\n            Write-Error \"dbatools module installed successfully\"\n        }\n        catch {\n            Send-Error -Code 3 -Description \"Failed to install required dbatools module. Please install it manually by running: Install-Module -Name dbatools -Force (Install error: $($_.Exception.Message))\"\n            exit 1\n        }\n    }\n    \n    # Import dbatools module\n    Send-Progress -Value 0.2\n    Import-Module dbatools -ErrorAction Stop\n    \n    # Build connection parameters\n    Send-Progress -Value 0.3\n    \n    # Extract and convert encryption parameters\n    $useencryptionRaw = Get-ParamValue -ParamsObject $params -ParamName 'useencryption'\n    $trustcertRaw = Get-ParamValue -ParamsObject $params -ParamName 'trustcert'\n    \n    $securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force\n    $credential = New-Object System.Management.Automation.PSCredential($username, $securePassword)\n    \n    # Build Connect-DbaInstance parameters with encryption settings\n    $connectParams = @{\n        SqlInstance = $server\n        Database = $database\n        SqlCredential = $credential\n    }\n    \n    # Add encryption parameter if enabled\n    if ($useencryptionRaw -eq $true -or $useencryptionRaw -eq \"true\" -or $useencryptionRaw -eq \"True\") {\n        $connectParams['EncryptConnection'] = $true\n        Write-Error \"Encryption enabled\"\n    }\n    \n    # Add TrustServerCertificate parameter if enabled\n    if ($trustcertRaw -eq $true -or $trustcertRaw -eq \"true\" -or $trustcertRaw -eq \"True\") {\n        $connectParams['TrustServerCertificate'] = $true\n        Write-Error \"TrustServerCertificate enabled\"\n    }\n    \n    # Create connection using Connect-DbaInstance\n    Write-Error \"Connecting to $server with encryption=$useencryptionRaw, trustcert=$trustcertRaw\"\n    $serverConnection = Connect-DbaInstance @connectParams\n    \n    # Apply SQL-level row limit if maxRows is specified and greater than 0\n    # If maxRows is 0, no limit is applied (return all rows)\n    if ($maxRows -and $maxRows -gt 0) {\n        # Check if query already has TOP clause (with or without parentheses)\n        if ($query -match '(?i)^\\s*SELECT\\s+TOP\\s*\\(?\\d+\\)?') {\n            # Replace existing TOP with our value\n            $query = [regex]::Replace($query, '^(\\s*SELECT\\s+)TOP\\s*\\(?\\d+\\)?', \"`$1TOP $maxRows \", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)\n            Write-Error \"Query TOP clause replaced with limit of $maxRows rows\"\n        } else {\n            # Inject TOP clause after SELECT\n            $query = [regex]::Replace($query, '^(\\s*SELECT\\s+)', \"`$1TOP $maxRows \", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)\n            Write-Error \"Query limited to $maxRows rows\"\n        }\n    } elseif ($maxRows -eq 0) {\n        Write-Error \"maxRows is 0 - no row limit applied, returning all results\"\n    }\n    \n    # Execute query\n    Send-Progress -Value 0.5\n    \n    try {\n        # When trustcert is enabled, suppress warnings to prevent certificate validation warnings from becoming errors\n        if ($trustcertRaw -eq $true -or $trustcertRaw -eq \"true\" -or $trustcertRaw -eq \"True\") {\n            $WarningPreference = 'SilentlyContinue'\n        } else {\n            $WarningPreference = 'Stop'\n        }\n        \n        # Use the connection object created by Connect-DbaInstance\n        $result = Invoke-DbaQuery -SqlInstance $serverConnection -Query $query -As PSObject -ErrorAction Stop -EnableException\n        Send-Progress -Value 0.9\n        \n        # Convert result to hashtable array\n        $processedResult = @()\n        if ($result) {\n            foreach ($row in $result) {\n                $processedRow = @{}\n                foreach ($prop in $row.PSObject.Properties) {\n                    $processedRow[$prop.Name] = $prop.Value\n                }\n                $processedResult += $processedRow\n            }\n        }\n        \n        # Export results based on selected format\n        $rowCount = $processedResult.Count\n        \n        if ($processedResult.Count -gt 0) {\n            # Generate unique filename with timestamp, milliseconds, and short GUID\n            $timestamp = Get-Date -Format \"yyyyMMdd_HHmmss_fff\"\n            $shortGuid = [guid]::NewGuid().ToString().Substring(0, 8)\n            \n            if ($exportFormat -eq \"JSON\") {\n                # Export as JSON\n                $jsonFileName = \"query_results_${timestamp}_${shortGuid}.json\"\n                $jsonFilePath = Join-Path $env:PWD $jsonFileName\n                $processedResult | ConvertTo-Json -Depth 100 | Out-File -FilePath $jsonFilePath -Encoding UTF8\n                Write-Error \"JSON file written to: $jsonFilePath\"\n                \n                # Upload the file as job output\n                Write-Output-JSON @{ xy = 1; files = @($jsonFilePath) }\n                \n                # Send data output with file information\n                $dataPayload = @{\n                    server = $server\n                    database = $database\n                    rowCount = $rowCount\n                    format = \"json\"\n                    fileName = $jsonFileName\n                    filePath = $jsonFilePath\n                }\n                Write-Output-JSON @{ xy = 1; data = $dataPayload }\n                \n                # Send success status (must be LAST - job completes after this)\n                Send-Success -Description \"Query executed successfully. $rowCount row(s) returned. Results saved to $jsonFileName\"\n            } else {\n                # Export as CSV (default)\n                $csvData = $processedResult | ForEach-Object { [PSCustomObject]$_ }\n                $csvFileName = \"query_results_${timestamp}_${shortGuid}.csv\"\n                $csvFilePath = Join-Path $env:PWD $csvFileName\n                $csvData | Export-Csv -Path $csvFilePath -NoTypeInformation -Encoding UTF8\n                Write-Error \"CSV file written to: $csvFilePath\"\n                \n                # Upload the file as job output\n                Write-Output-JSON @{ xy = 1; files = @($csvFilePath) }\n                \n                # Send data output with file information\n                $dataPayload = @{\n                    server = $server\n                    database = $database\n                    rowCount = $rowCount\n                    format = \"csv\"\n                    fileName = $csvFileName\n                    filePath = $csvFilePath\n                }\n                Write-Output-JSON @{ xy = 1; data = $dataPayload }\n                \n                # Send success status (must be LAST - job completes after this)\n                Send-Success -Description \"Query executed successfully. $rowCount row(s) returned. Results saved to $csvFileName\"\n            }\n        } else {\n            # Send success for empty results\n            Send-Success -Description \"Query executed successfully. 0 rows returned.\"\n        }\n    }\n    catch {\n        Send-Error -Code 4 -Description \"Database query failed: $($_.Exception.Message)\"\n        exit 1\n    }\n}\ncatch {\n    Send-Error -Code 5 -Description $_.Exception.Message\n    exit 1\n}",
+				"groups": [],
+				"format": "",
+				"params": [
+					{
+						"id": "server",
+						"title": "MSSQL server",
+						"type": "text",
+						"caption": "Hostname or IP address to the MSSQL server",
+						"locked": false,
+						"value": "",
+						"variant": "text",
+						"required": true
+					},
+					{
+						"id": "database",
+						"title": "Database",
+						"type": "text",
+						"caption": "Initial database to connect to. You can use the USE your_database; in you query.",
+						"locked": false,
+						"value": "master",
+						"variant": "text",
+						"required": true
+					},
+					{
+						"id": "username",
+						"title": "Username",
+						"type": "text",
+						"caption": "Local or domain user to connect to the MSSQL server",
+						"locked": false,
+						"value": "",
+						"variant": "text",
+						"required": true
+					},
+					{
+						"id": "password",
+						"title": "Password",
+						"type": "text",
+						"caption": "Password for the user",
+						"locked": false,
+						"value": "",
+						"variant": "password",
+						"required": true
+					},
+					{
+						"id": "query",
+						"title": "Query",
+						"type": "code",
+						"caption": "SQL query. You can past complete SQL query's in this field, see documentation for examples.",
+						"locked": false,
+						"value": "",
+						"required": true
+					},
+					{
+						"id": "maxrows",
+						"title": "Max. rows to return",
+						"type": "text",
+						"caption": "If set to 0 then all rows are returned.",
+						"locked": false,
+						"value": 0,
+						"variant": "number",
+						"required": false
+					},
+					{
+						"id": "useencryption",
+						"title": "Use encryption",
+						"type": "checkbox",
+						"caption": "Use encrypted connection.",
+						"locked": false,
+						"value": false
+					},
+					{
+						"id": "trustcert",
+						"title": "Trust certificate",
+						"type": "checkbox",
+						"caption": "Trust the certificate.",
+						"locked": false,
+						"value": false
+					},
+					{
+						"id": "exportformat",
+						"title": "Export format",
+						"type": "select",
+						"caption": "Choos the export format of the file.",
+						"locked": false,
+						"value": "CSV,JSON"
+					},
+					{
+						"id": "debug",
+						"title": "Enable debug mode",
+						"type": "checkbox",
+						"caption": "Write the JSON parameters to the job output.",
+						"locked": false,
+						"value": false
+					}
+				],
+				"kill": "parent",
+				"runner": false,
+				"notes": "",
+				"icon": "database",
+				"uid": "",
+				"gid": ""
+			}
+		}
+	]
 }

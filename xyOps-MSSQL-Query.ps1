@@ -156,38 +156,38 @@ try {
     Send-Progress -Value 0.2
     Import-Module dbatools -ErrorAction Stop
     
-    # Configure dbatools connection settings based on parameters
-    # Must use explicit $true/$false for dbatools config
-    if ($trustcertRaw -eq "true") {
-        Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $true
-    } else {
-        Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $false
-    }
-    
-    if ($useencryptionRaw-eq "true") {
-        Set-DbatoolsConfig -FullName sql.connection.encrypt -Value $true
-        Write-Error "Encryption enabled for SQL connection"
-    } else {
-        Set-DbatoolsConfig -FullName sql.connection.encrypt -Value $false
-        Write-Error "Encryption disabled for SQL connection"
-    }
-    
-    Write-Error "dbatools config: trustcert=$trustcertRaw , encrypt=$useencryptionRaw"
-    
     # Build connection parameters
     Send-Progress -Value 0.3
+    
+    # Extract and convert encryption parameters
+    $useencryptionRaw = Get-ParamValue -ParamsObject $params -ParamName 'useencryption'
+    $trustcertRaw = Get-ParamValue -ParamsObject $params -ParamName 'trustcert'
     
     $securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force
     $credential = New-Object System.Management.Automation.PSCredential($username, $securePassword)
     
+    # Build Connect-DbaInstance parameters with encryption settings
     $connectParams = @{
         SqlInstance = $server
         Database = $database
         SqlCredential = $credential
     }
     
-    # Encryption and certificate trust are handled by Set-DbatoolsConfig above
-    # No need to set them in connection parameters
+    # Add encryption parameter if enabled
+    if ($useencryptionRaw -eq $true -or $useencryptionRaw -eq "true" -or $useencryptionRaw -eq "True") {
+        $connectParams['EncryptConnection'] = $true
+        Write-Error "Encryption enabled"
+    }
+    
+    # Add TrustServerCertificate parameter if enabled
+    if ($trustcertRaw -eq $true -or $trustcertRaw -eq "true" -or $trustcertRaw -eq "True") {
+        $connectParams['TrustServerCertificate'] = $true
+        Write-Error "TrustServerCertificate enabled"
+    }
+    
+    # Create connection using Connect-DbaInstance
+    Write-Error "Connecting to $server with encryption=$useencryptionRaw, trustcert=$trustcertRaw"
+    $serverConnection = Connect-DbaInstance @connectParams
     
     # Apply SQL-level row limit if maxRows is specified and greater than 0
     # If maxRows is 0, no limit is applied (return all rows)
@@ -210,23 +210,15 @@ try {
     Send-Progress -Value 0.5
     
     try {
-        # Prepare query parameters
-        $queryParams = @{
-            Query = $query
-            As = 'PSObject'
-            ErrorAction = 'Stop'
-            EnableException = $true
-        }
-        
         # When trustcert is enabled, suppress warnings to prevent certificate validation warnings from becoming errors
-        if ($trustcert) {
+        if ($trustcertRaw -eq $true -or $trustcertRaw -eq "true" -or $trustcertRaw -eq "True") {
             $WarningPreference = 'SilentlyContinue'
-            $queryParams['WarningAction'] = 'SilentlyContinue'
         } else {
             $WarningPreference = 'Stop'
         }
         
-        $result = Invoke-DbaQuery @connectParams @queryParams
+        # Use the connection object created by Connect-DbaInstance
+        $result = Invoke-DbaQuery -SqlInstance $serverConnection -Query $query -As PSObject -ErrorAction Stop -EnableException
         Send-Progress -Value 0.9
         
         # Convert result to hashtable array
