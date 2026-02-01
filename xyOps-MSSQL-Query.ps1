@@ -111,8 +111,8 @@ if ($debug) {
 
 $server = Get-ParamValue -ParamsObject $params -ParamName 'server'
 $database = Get-ParamValue -ParamsObject $params -ParamName 'database'
-$username = Get-ParamValue -ParamsObject $params -ParamName 'username'
-$password = Get-ParamValue -ParamsObject $params -ParamName 'password'
+$username = $env:MSSQLQUERY_USERNAME
+$password = $env:MSSQLQUERY_PASSWORD
 $query = Get-ParamValue -ParamsObject $params -ParamName 'query'
 $maxRows = Get-ParamValue -ParamsObject $params -ParamName 'maxRows'
 $exportFormatRaw = Get-ParamValue -ParamsObject $params -ParamName 'exportFormat'

@@ -1,3 +1,6 @@
+<p align="center"><img src="https://raw.githubusercontent.com/talder/xyOps-MSSQL-Query/refs/heads/main/logo.png" height="108" alt="Logo"/></p>
+<h1 align="center">MSSQL Query Plugin</h1>
+
 # xyOps MSSQL Query Plugin
 
 Execute SQL queries against Microsoft SQL Server databases using PowerShell and [dbatools](https://dbatools.io). This plugin provides a simple interface to run queries, export results to CSV or JSON file, and manage connection security settings.
@@ -25,20 +28,39 @@ Execute SQL queries against Microsoft SQL Server databases using PowerShell and 
   - The plugin will attempt to install dbatools using `Install-Module -Name dbatools -Scope CurrentUser`
   - Requires internet connection for first-time installation
 
+### Secret Vault Configuration
+
+**IMPORTANT**: This plugin requires SQL Server credentials to be stored in an xyOps secret vault for secure authentication.
+
+#### Setting Up the Secret Vault
+
+1. **Create a Secret Vault** in xyOps (e.g., named `MSSQL-QUERY-PLUGIN`)
+2. **Add the following keys** to the vault:
+   - `MSSQLQUERY_USERNAME` - Your SQL Server username
+   - `MSSQLQUERY_PASSWORD` - Your SQL Server password
+
+3. **Attach the vault** to the plugin when configuring it
+
+The plugin will automatically read credentials from these environment variables at runtime.
+
+**Note**: Username and password parameters are NOT passed directly to the plugin. All authentication is handled securely through environment variables populated from the secret vault.
+
+For detailed instructions on creating and managing secret vaults, see the [xyOps Secrets Documentation](https://github.com/pixlcore/xyops/blob/main/docs/secrets.md).
+
 ## Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `server` | text | Yes | SQL Server address (hostname or IP) |
 | `database` | text | Yes | Database name to query |
-| `username` | text | Yes | SQL Server username for authentication |
-| `password` | text | Yes | SQL Server password |
 | `query` | textarea | Yes | SQL query to execute |
 | `maxRows` | number | No | Maximum rows to return (0 = unlimited) |
 | `exportFormat` | select | No | Output format: CSV (default) or JSON |
 | `useencryption` | checkbox | No | Enable encrypted connection |
 | `trustcert` | checkbox | No | Trust server certificate (bypass validation) |
 | `debug` | checkbox | No | Enable debug output |
+
+**Authentication**: Credentials (`MSSQLQUERY_USERNAME` and `MSSQLQUERY_PASSWORD`) must be configured in a secret vault attached to this plugin. See [Secret Vault Configuration](#secret-vault-configuration) above.
 
 ## Usage Examples
 
@@ -308,4 +330,4 @@ Tim Alderweireldt
 
 ## Version
 
-1.0.0
+1.0.1
