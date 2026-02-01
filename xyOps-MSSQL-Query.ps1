@@ -120,19 +120,36 @@ $exportFormat = if ([string]::IsNullOrWhiteSpace($exportFormatRaw)) { "CSV" } el
 $useencryptionRaw = Get-ParamValue -ParamsObject $params -ParamName 'useencryption'
 $trustcertRaw = Get-ParamValue -ParamsObject $params -ParamName 'trustcert'
 
-
 # Validate required parameters
-$required = @('server', 'database', 'username', 'password', 'query')
 $missing = @()
-foreach ($field in $required) {
-    $value = Get-ParamValue -ParamsObject $params -ParamName $field
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        $missing += $field
-    }
+
+# Check server parameter
+if ([string]::IsNullOrWhiteSpace($server)) {
+    $missing += 'server'
+}
+
+# Check database parameter
+if ([string]::IsNullOrWhiteSpace($database)) {
+    $missing += 'database'
+}
+
+# Check username from environment variable
+if ([string]::IsNullOrWhiteSpace($username)) {
+    $missing += 'MSSQLQUERY_USERNAME (environment variable)'
+}
+
+# Check password from environment variable
+if ([string]::IsNullOrWhiteSpace($password)) {
+    $missing += 'MSSQLQUERY_PASSWORD (environment variable)'
+}
+
+# Check query parameter
+if ([string]::IsNullOrWhiteSpace($query)) {
+    $missing += 'query'
 }
 
 if ($missing.Count -gt 0) {
-    Send-Error -Code 2 -Description "Missing required parameters: $($missing -join ', ')"
+    Send-Error -Code 2 -Description "Missing required parameters: $($missing -join ', '). Credentials must be provided via secret vault environment variables."
     exit 1
 }
 
