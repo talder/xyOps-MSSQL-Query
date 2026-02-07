@@ -3,7 +3,7 @@
 
 # xyOps MSSQL Query Plugin
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/talder/xyOps-MSSQL-Query/releases)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/talder/xyOps-MSSQL-Query/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![dbatools](https://img.shields.io/badge/dbatools-2.0+-green.svg)](https://dbatools.io)
