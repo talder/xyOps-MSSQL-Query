@@ -1,9 +1,18 @@
 <p align="center"><img src="https://raw.githubusercontent.com/talder/xyOps-MSSQL-Query/refs/heads/main/logo.png" height="108" alt="Logo"/></p>
-<h1 align="center">MSSQL Query Plugin</h1>
+<h1 align="center">MSSQL Query</h1>
 
 # xyOps MSSQL Query Plugin
 
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/talder/xyOps-MSSQL-Query/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
+[![dbatools](https://img.shields.io/badge/dbatools-2.0+-green.svg)](https://dbatools.io)
+
 Execute SQL queries against Microsoft SQL Server databases using PowerShell and [dbatools](https://dbatools.io). This plugin provides a simple interface to run queries, export results to CSV or JSON file, and manage connection security settings.
+
+## Disclaimer
+
+**USE AT YOUR OWN RISK.** This software is provided "as is", without warranty of any kind, express or implied. The author and contributors are not responsible for any damages, data loss, system downtime, or other issues that may arise from the use of this software. Always test in non-production environments before running against production systems. By using this plugin, you acknowledge that you have read, understood, and accepted this disclaimer.
 
 ## Features
 
@@ -330,4 +339,4 @@ Tim Alderweireldt
 
 ## Version
 
-1.0.1
+1.0.2
